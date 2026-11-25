@@ -79,6 +79,10 @@ fn ip6(addr: &str) -> BTreeMap<String, Dict> {
     )])
 }
 
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
 fn wifi_profile(id: &str, ssid: &str, km: Option<&str>, pw: &str, ts: i64, prio: i32) -> Settings {
     let mut st = form::wifi_join_settings(ssid, km, pw, false);
     let c = st.get_mut("connection").expect("connection");
@@ -173,10 +177,11 @@ impl Demo {
 
         let mut settings = BTreeMap::new();
         let home = "/org/freedesktop/NetworkManager/Settings/1";
-        settings.insert(home.to_string(), wifi_profile("Home-5G", "Home-5G", Some("wpa-psk"), "correct horse battery", 1_764_070_000, 10));
-        settings.insert("/org/freedesktop/NetworkManager/Settings/2".to_string(), wifi_profile("Pixel 8 hotspot", "Pixel 8", Some("wpa-psk"), "outdated-pass", 1_763_000_000, 0));
-        settings.insert("/org/freedesktop/NetworkManager/Settings/3".to_string(), wifi_profile("Cabin", "LakeCabin", Some("wpa-psk"), "fishing2024", 1_720_000_000, 0));
+        settings.insert(home.to_string(), wifi_profile("Home-5G", "Home-5G", Some("wpa-psk"), "correct horse battery", now() - 600, 10));
+        settings.insert("/org/freedesktop/NetworkManager/Settings/2".to_string(), wifi_profile("Pixel 8 hotspot", "Pixel 8", Some("wpa-psk"), "outdated-pass", now() - 3 * 86_400, 0));
+        settings.insert("/org/freedesktop/NetworkManager/Settings/3".to_string(), wifi_profile("Cabin", "LakeCabin", Some("wpa-psk"), "fishing2024", now() - 140 * 86_400, 0));
         let mut wired = form::new_settings("802-3-ethernet", "Wired connection 1");
+        wired.get_mut("connection").expect("c").insert("timestamp".into(), Val::U64((now() - 30) as u64));
         wired.insert("ipv4".into(), d(vec![("method", s("auto"))]));
         wired.insert("ipv6".into(), d(vec![("method", s("auto"))]));
         settings.insert("/org/freedesktop/NetworkManager/Settings/4".to_string(), wired);
@@ -363,7 +368,7 @@ impl Demo {
                 self.set_dev_state(WLAN, 100, 0);
                 self.dev_mut(WLAN, IF_WIRELESS).insert("ActiveAccessPoint".into(), p(&ap));
                 if let Some(c) = self.settings.get_mut(&profile).and_then(|s| s.get_mut("connection")) {
-                    c.insert("timestamp".into(), Val::U64(1_764_080_000));
+                    c.insert("timestamp".into(), Val::U64(now() as u64));
                 }
                 let name = self.settings.get(&profile).and_then(|s| s.get("connection")).map(|c| c.s("id")).unwrap_or_default();
                 let _ = self.ev.send(Ev::Busy { key: WLAN.into(), label: name.clone(), on: false });

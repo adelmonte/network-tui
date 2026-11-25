@@ -9,6 +9,8 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use super::val::{ssid_to_string, Dict, DictExt, Settings, Val};
 
+/// Editable fields. (Names mirror NM terms like "key-mgmt"/"private-key".)
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Key {
     // general
@@ -380,6 +382,66 @@ impl Form {
             add(V6Privacy, "IPv6", "Privacy extensions", "temporary addresses make you harder to track", choice(PRIVACY, &gi(s, "ipv6", "ip6-privacy").unwrap_or(-1).to_string()));
         }
         Self { kind, fields: f, base: s.clone(), is_new }
+    }
+
+    /// Merge secrets fetched with GetSecrets into the form (only fills empty
+    /// secret fields, so nothing the user already typed is overwritten).
+    pub fn apply_secrets(&mut self, setting: &str, values: &Dict) {
+        let base = self.base.entry(setting.to_string()).or_default();
+        for (k, v) in values {
+            if k == "peers" {
+                // WireGuard peer secrets arrive as a peers list: merge by public key.
+                if let (Some(Val::DictList(have)), Val::DictList(got)) = (base.get_mut("peers"), v) {
+                    for g in got {
+                        if let Some(h) = have.iter_mut().find(|h| h.s("public-key") == g.s("public-key")) {
+                            for (gk, gv) in g {
+                                h.entry(gk.clone()).or_insert_with(|| gv.clone());
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            base.insert(k.clone(), v.clone());
+        }
+        let fill = |fields: &mut Vec<Field>, key: Key, val: String| {
+            if let Some(f) = fields.iter_mut().find(|f| f.key == key)
+                && let Value::Secret(cur) = &mut f.value
+                    && cur.is_empty() && !val.is_empty() {
+                        *cur = val;
+                    }
+        };
+        let b = self.base.clone();
+        match setting {
+            "802-11-wireless-security" => {
+                let psk = { let p = gs(&b, setting, "psk"); if p.is_empty() { gs(&b, setting, "wep-key0") } else { p } };
+                fill(&mut self.fields, Key::Psk, psk);
+            }
+            "802-1x" => {
+                fill(&mut self.fields, Key::EapPassword, gs(&b, setting, "password"));
+                fill(&mut self.fields, Key::PrivateKeyPassword, gs(&b, setting, "private-key-password"));
+            }
+            "wireguard" => {
+                fill(&mut self.fields, Key::WgPrivateKey, gs(&b, setting, "private-key"));
+                fill(&mut self.fields, Key::PeerPsk, first_peer(&b).s("preshared-key"));
+            }
+            _ => {}
+        }
+    }
+
+    /// Which settings hold secrets for this profile (to fetch before editing).
+    pub fn secret_settings(&self) -> Vec<&'static str> {
+        let mut v = Vec::new();
+        if self.base.contains_key("802-11-wireless-security") {
+            v.push("802-11-wireless-security");
+        }
+        if self.base.contains_key("802-1x") {
+            v.push("802-1x");
+        }
+        if self.base.contains_key("wireguard") {
+            v.push("wireguard");
+        }
+        v
     }
 
     pub fn get(&self, k: Key) -> Option<&Value> {
@@ -1080,6 +1142,21 @@ mod tests {
         assert_eq!(peer.s("endpoint"), "vpn.example.org:51820");
         assert_eq!(peer.u("persistent-keepalive"), 25);
         assert_eq!(peer["allowed-ips"], Val::StrList(vec!["10.8.0.0/24".into(), "::/0".into()]));
+    }
+
+    #[test]
+    fn secrets_fill_empty_fields_only() {
+        let mut s = existing_wifi();
+        s.get_mut("802-11-wireless-security").unwrap().remove("psk"); // GetSettings omits secrets
+        let mut form = Form::from_settings(&s, false);
+        assert_eq!(form.get(Key::Psk).unwrap().text(), "");
+        let mut sec = Dict::new();
+        sec.insert("psk".into(), Val::Str("from-nm-123".into()));
+        form.apply_secrets("802-11-wireless-security", &sec);
+        assert_eq!(form.get(Key::Psk).unwrap().text(), "from-nm-123");
+        sec.insert("psk".into(), Val::Str("other".into()));
+        form.apply_secrets("802-11-wireless-security", &sec);
+        assert_eq!(form.get(Key::Psk).unwrap().text(), "from-nm-123");
     }
 
     #[test]

@@ -535,14 +535,13 @@ impl State {
                         if !s.contains_key(setting) {
                             continue;
                         }
-                        if let Ok(sec) = bus.secrets(&path, setting).await {
-                            if let Some(values) = sec.get(setting) {
+                        if let Ok(sec) = bus.secrets(&path, setting).await
+                            && let Some(values) = sec.get(setting) {
                                 let d = s.get_mut(setting).expect("checked");
                                 for (k, v) in values {
                                     d.entry(k.clone()).or_insert_with(|| v.clone());
                                 }
                             }
-                        }
                     }
                     bus.call0(&path, IF_CONN, "Update", &(settings_to_dbus(&s),)).await
                 });

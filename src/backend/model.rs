@@ -69,7 +69,6 @@ pub enum DevKind {
     Ethernet,
     Wifi,
     WireGuard,
-    Vpn,
     Bridge,
     Bond,
     Vlan,
@@ -101,7 +100,6 @@ impl DevKind {
             Self::Ethernet => "Ethernet",
             Self::Wifi => "Wi-Fi",
             Self::WireGuard => "WireGuard",
-            Self::Vpn => "VPN",
             Self::Bridge => "Bridge",
             Self::Bond => "Bond",
             Self::Vlan => "VLAN",
@@ -570,7 +568,7 @@ pub fn parse(objs: &Objects, settings: &BTreeMap<String, Settings>) -> Snapshot 
                 .collect();
         }
     }
-    profiles.sort_by(|a, b| (!a.is_active(), kind_rank(&a.kind), a.id.to_lowercase()).cmp(&(!b.is_active(), kind_rank(&b.kind), b.id.to_lowercase())));
+    profiles.sort_by_key(|a| (!a.is_active(), kind_rank(&a.kind), a.id.to_lowercase()));
     Snapshot { general, devices, aps, active, profiles }
 }
 
@@ -663,11 +661,10 @@ pub fn detect_wifi_backend() -> Option<String> {
     }
     let mut found = None;
     for f in files {
-        if let Ok(text) = std::fs::read_to_string(&f) {
-            if let Some(v) = parse_wifi_backend(&text) {
+        if let Ok(text) = std::fs::read_to_string(&f)
+            && let Some(v) = parse_wifi_backend(&text) {
                 found = Some(v); // later files override earlier ones
             }
-        }
     }
     found
 }
@@ -679,14 +676,13 @@ pub fn parse_wifi_backend(text: &str) -> Option<String> {
         let l = line.trim();
         if l.starts_with('[') && l.ends_with(']') {
             section = l[1..l.len() - 1].trim().to_string();
-        } else if section == "device" || section.starts_with("device-") {
-            if let Some(v) = l.strip_prefix("wifi.backend") {
+        } else if (section == "device" || section.starts_with("device-"))
+            && let Some(v) = l.strip_prefix("wifi.backend") {
                 let v = v.trim_start().strip_prefix('=').map(str::trim);
                 if let Some(v) = v.filter(|v| !v.is_empty()) {
                     found = Some(v.to_string());
                 }
             }
-        }
     }
     found
 }
