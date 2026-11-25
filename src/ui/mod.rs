@@ -4,6 +4,7 @@
 
 #![allow(dead_code)] // shared kit: not every app uses every helper
 
+pub mod dialog;
 pub mod input;
 pub mod mouse;
 pub mod palette;

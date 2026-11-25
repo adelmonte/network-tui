@@ -51,7 +51,8 @@ pub fn popup(f: &mut Frame, area: Rect, theme: &Theme, title: &str) -> Rect {
     inner
 }
 
-/// Tab bar: ` 1 Devices │ 2 Adapters `. Each tab is clickable.
+/// Tab bar: ` 1 Devices │ 2 Adapters `. Each tab is clickable. When the
+/// titles don't fit, other tabs collapse to their number.
 pub fn tabs<T: Clone>(
     f: &mut Frame,
     area: Rect,
@@ -61,10 +62,12 @@ pub fn tabs<T: Clone>(
     mouse: &mut MouseMap<T>,
     target: impl Fn(usize) -> T,
 ) {
+    let full: usize = titles.iter().enumerate().map(|(i, t)| format!(" {} {} ", i + 1, t).width()).sum::<usize>() + titles.len().saturating_sub(1);
+    let compact = full > area.width as usize;
     let mut x = area.x;
     let mut spans = Vec::new();
     for (i, t) in titles.iter().enumerate() {
-        let label = format!(" {} {} ", i + 1, t);
+        let label = if compact && i != selected { format!(" {} ", i + 1) } else { format!(" {} {} ", i + 1, t) };
         let w = label.width() as u16;
         let style = if i == selected {
             if theme.mono {
