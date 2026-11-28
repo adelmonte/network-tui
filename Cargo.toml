@@ -1,6 +1,6 @@
 [package]
 name = "network-tui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A modern terminal UI for NetworkManager"
 license = "GPL-3.0-or-later"
@@ -15,7 +15,7 @@ futures = "0.3.34"
 qrcode = { version = "0.15.0", default-features = false, features = ["std"] }
 ratatui = "0.30"
 serde = { version = "1.0.229", features = ["derive"] }
-tokio = { version = "1.54.1", features = ["full"] }
+tokio = { version = "1.54.1", features = ["rt", "macros", "sync", "time", "process"] }
 toml = "1.2.3"
 toml_edit = "0.25.21"
 tracing = "0.1.44"

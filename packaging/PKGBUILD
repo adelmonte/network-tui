@@ -1,38 +1,39 @@
 # Maintainer: adelmonte
 pkgname=network-tui
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='A modern terminal UI for NetworkManager'
 arch=('x86_64')
 url='https://github.com/adelmonte/network-tui'
 license=('GPL-3.0-or-later')
 depends=('networkmanager' 'gcc-libs' 'glibc')
-makedepends=('cargo' 'git')
-source=("$pkgname::git+file://$(realpath "$startdir/..")")
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 options=('!lto')
 
-pkgver() {
-  cd "$pkgname"
-  printf '%s.r%s.g%s' "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
-}
-
 prepare() {
-  cd "$pkgname"
+  cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
 }
 
 build() {
-  cd "$pkgname"
+  cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
   cargo build --frozen --release
 }
 
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release
+}
+
 package() {
-  cd "$pkgname"
-  install -Dm755 target/release/network-tui "$pkgdir/usr/bin/network-tui"
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/${CARGO_BUILD_TARGET:-.}/release/network-tui "$pkgdir/usr/bin/network-tui"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
