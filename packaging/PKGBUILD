@@ -1,6 +1,6 @@
 # Maintainer: adelmonte
 pkgname=network-tui
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc='A modern terminal UI for NetworkManager'
 arch=('x86_64')
@@ -9,7 +9,7 @@ license=('GPL-3.0-or-later')
 depends=('networkmanager' 'gcc-libs' 'glibc')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('b916683f682b95f2cb6f014ea07fe9aac8445b2c11b564b3e74d2485a4fa3c03')
+sha256sums=('SKIP')
 options=('!lto')
 
 prepare() {

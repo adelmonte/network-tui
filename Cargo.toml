@@ -1,6 +1,6 @@
 [package]
 name = "network-tui"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "A modern terminal UI for NetworkManager"
 license = "GPL-3.0-or-later"
