@@ -268,7 +268,7 @@ impl Editor {
             match row {
                 Row::Header(s) => {
                     if !s.is_empty() {
-                        f.render_widget(Span::styled(s.to_uppercase(), theme.accent().add_modifier(Modifier::BOLD)), rr);
+                        f.render_widget(Span::styled(s.to_string(), theme.accent().add_modifier(Modifier::BOLD)), rr);
                     }
                 }
                 Row::Field(vi, fi) => {

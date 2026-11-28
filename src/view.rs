@@ -220,7 +220,7 @@ fn render_wifi(app: &mut App, f: &mut Frame, area: Rect) {
     for (n, row) in rows.iter().enumerate().skip(off).take(inner.height as usize) {
         let r = Rect { y: inner.y + (n - off) as u16, height: 1, ..inner };
         match row {
-            Row::Header(h) => f.render_widget(Span::styled(format!(" {}", h.to_uppercase()), t.dim().add_modifier(Modifier::BOLD)), r),
+            Row::Header(h) => f.render_widget(Span::styled(format!(" {h}"), t.dim().add_modifier(Modifier::BOLD)), r),
             Row::Hint(h) => f.render_widget(Span::styled(format!("   {h}"), t.dim().add_modifier(Modifier::ITALIC)), r),
             Row::Net(i, net) => {
                 let selected = sel == Some(*i);
@@ -292,7 +292,7 @@ impl<'a> Kv<'a> {
     }
     fn section(&mut self, s: &str) {
         self.gap();
-        self.lines.push((Line::from(Span::styled(s.to_uppercase(), self.t.dim().add_modifier(Modifier::BOLD))), None));
+        self.lines.push((Line::from(Span::styled(s.to_string(), self.t.dim().add_modifier(Modifier::BOLD))), None));
     }
     fn note(&mut self, s: &str, style: Style) {
         self.lines.push((Line::from(Span::styled(s.to_string(), style)), None));
@@ -405,7 +405,7 @@ fn render_connections(app: &mut App, f: &mut Frame, area: Rect) {
     let [head, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(inner);
     let cols = |name: String, kind: &str, dev: &str, last: &str| format!("{name}  {kind:<10} {dev:<9} {last:>9}");
     let name_w = (head.width as usize).saturating_sub(36).max(10);
-    f.render_widget(Span::styled(format!("  {}", cols(format!("{:<name_w$}", "NAME"), "TYPE", "DEVICE", "LAST USED")), t.dim().add_modifier(Modifier::BOLD)), head);
+    f.render_widget(Span::styled(format!("  {}", cols(format!("{:<name_w$}", "Name"), "Type", "Device", "Last used")), t.dim().add_modifier(Modifier::BOLD)), head);
     if profs.is_empty() {
         f.render_widget(Span::styled("   no connections", t.dim()), list);
     }
@@ -497,7 +497,7 @@ fn render_devices(app: &mut App, f: &mut Frame, area: Rect) {
     let inner = list_frame(app, f, list_area, "Devices");
     let devs: Vec<Device> = app.devices().into_iter().cloned().collect();
     let [head, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(inner);
-    f.render_widget(Span::styled(format!("  {:<12} {:<10} {:<14} {:<18} {}", "DEVICE", "TYPE", "STATE", "CONNECTION", "ADDRESS"), t.dim().add_modifier(Modifier::BOLD)), head);
+    f.render_widget(Span::styled(format!("  {:<12} {:<10} {:<14} {:<18} {}", "Device", "Type", "State", "Connection", "Address"), t.dim().add_modifier(Modifier::BOLD)), head);
     let sel = app.selected_index();
     let off = scroll(app, sel, devs.len(), list.height as usize);
     for (i, d) in devs.iter().enumerate().skip(off).take(list.height as usize) {
