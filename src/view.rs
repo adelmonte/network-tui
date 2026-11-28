@@ -41,9 +41,6 @@ pub fn render(app: &mut App, f: &mut Frame) {
 
 fn render_header(app: &mut App, f: &mut Frame, area: Rect) {
     let t = app.theme.clone();
-    let logo = if app.cfg.general.icons == IconSet::Nerd { " 󰖩 network " } else { " ≋ network " };
-    let lw = logo.width() as u16;
-    f.render_widget(Span::styled(logo, t.accent().add_modifier(Modifier::BOLD)), Rect { width: lw, ..area });
     let mut right: Vec<Span> = Vec::new();
     if app.demo {
         right.push(Span::styled(" DEMO ", Style::default().add_modifier(Modifier::REVERSED)));
@@ -51,7 +48,8 @@ fn render_header(app: &mut App, f: &mut Frame, area: Rect) {
     }
     if app.loaded && app.unavailable.is_none() {
         let primary = app.snap.active.iter().find(|a| a.default4).map(|a| a.id.clone());
-        if let Some(p) = primary {
+        // The connection name is the first thing to go on narrow screens, so the tabs fit.
+        if let (Some(p), true) = (primary, area.width >= 80) {
             right.push(Span::styled(format!("{} ", truncate(&p, 24)), t.text()));
         }
         let (dot, style) = match app.snap.general.connectivity {
@@ -66,7 +64,7 @@ fn render_header(app: &mut App, f: &mut Frame, area: Rect) {
     let rw: u16 = right.iter().map(|s| s.content.width() as u16).sum();
     let titles: Vec<&str> = Tab::ALL.iter().map(|t| t.title()).collect();
     let sel = Tab::ALL.iter().position(|x| *x == app.tab).unwrap_or(0);
-    let tabs_area = Rect { x: area.x + lw + 1, width: area.width.saturating_sub(lw + 1 + rw), ..area };
+    let tabs_area = Rect { width: area.width.saturating_sub(rw), ..area };
     widgets::tabs(f, tabs_area, &titles, sel, &t, &mut app.mouse, Target::Tab);
     if rw <= area.width {
         f.render_widget(Line::from(right), Rect { x: area.right() - rw, width: rw, ..area });
@@ -308,7 +306,7 @@ impl<'a> Kv<'a> {
                 break;
             }
             let r = Rect { y: inner.y + i as u16, height: 1, ..inner };
-            f.render_widget(l, r);
+            f.render_widget(widgets::fit_line(l, r.width as usize), r);
             if let Some(tg) = tg {
                 app.mouse.add(r, tg);
             }
@@ -439,7 +437,7 @@ fn render_connections(app: &mut App, f: &mut Frame, area: Rect) {
             Span::styled(format!("{name:<name_w$}"), if p.is_active() { t.bold() } else { t.text() }),
             Span::styled(format!("  {:<10} {:<9} {:>9}", p.kind_label(), truncate(&dev, 9), ago(p.timestamp)), t.dim()),
         ]);
-        f.render_widget(line.style(base), r);
+        f.render_widget(widgets::fit_line(line, r.width as usize).style(base), r);
         app.mouse.add(r, Target::Row(i));
     }
     if let Some(d) = details {
@@ -511,13 +509,13 @@ fn render_devices(app: &mut App, f: &mut Frame, area: Rect) {
         let state = if app.busy.contains_key(&d.path) || d.state.busy() { format!("{} {}", spinner(app.tick), d.state.label()) } else { d.state.label().to_string() };
         let line = Line::from(vec![
             if selected { Span::styled("▌", t.accent()) } else { Span::raw(" ") },
-            Span::styled(format!(" {:<12}", truncate(&d.iface, 12)), if d.state == DevState::Connected { t.bold() } else { t.text() }),
+            Span::styled(format!(" {:<12} ", truncate(&d.iface, 12)), if d.state == DevState::Connected { t.bold() } else { t.text() }),
             Span::styled(format!("{:<10} ", d.kind.label()), t.dim()),
             Span::styled(format!("{:<14} ", state), state_style(&t, d.state)),
             Span::styled(format!("{:<18} ", truncate(&conn, 18)), t.text()),
             Span::styled(d.ip4.addresses.first().cloned().unwrap_or_default(), t.dim()),
         ]);
-        f.render_widget(line.style(base), r);
+        f.render_widget(widgets::fit_line(line, r.width as usize).style(base), r);
         app.mouse.add(r, Target::Row(i));
     }
     if let Some(dr) = details {
@@ -605,7 +603,7 @@ fn render_general(app: &mut App, f: &mut Frame, area: Rect) {
             Span::raw("   "),
             Span::styled(note, t.dim()),
         ]);
-        f.render_widget(line.style(base), r);
+        f.render_widget(widgets::fit_line(line, r.width as usize).style(base), r);
         app.mouse.add(r, Target::Row(i));
     }
     let y = inner.y + GenRow::ALL.len() as u16 * 2 + 1;
@@ -863,5 +861,17 @@ mod snapshots {
         a.popup = None;
         a.run(Action::Hotspot);
         println!("{}", dump(&mut a, 100, 24));
+    }
+
+    #[tokio::test]
+    async fn snap_sweep() {
+        let mut a = app().await;
+        a.show_details = true;
+        for tab in Tab::ALL {
+            a.tab = tab;
+            for (w, h) in [(60, 18), (90, 24), (140, 30)] {
+                println!("=== {tab:?} {w}x{h}\n{}", dump(&mut a, w, h));
+            }
+        }
     }
 }

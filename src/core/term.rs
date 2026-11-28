@@ -4,7 +4,8 @@
 use std::io::{stdout, Stdout};
 
 use crossterm::{
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste},
+    style::Print,
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -21,7 +22,9 @@ pub fn init(mouse: bool) -> std::io::Result<Term> {
     // arrives in time (slow SSH, some multiplexers) — impala issues #171/#174.
     execute!(out, EnterAlternateScreen, EnableBracketedPaste, Clear(ClearType::All))?;
     if mouse {
-        execute!(out, EnableMouseCapture)?;
+        // Clicks, drags and wheel in SGR encoding, but not crossterm's
+        // any-motion mode (1003): that reports every cell the pointer crosses.
+        execute!(out, Print("\x1b[?1000h\x1b[?1002h\x1b[?1006h"))?;
     }
     Terminal::new(CrosstermBackend::new(out))
 }

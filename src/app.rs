@@ -470,9 +470,10 @@ impl App {
         }
     }
 
-    pub fn on_tick(&mut self) {
+    /// Advances timers; true when that changed what's on screen.
+    pub fn on_tick(&mut self) -> bool {
         self.tick = self.tick.wrapping_add(1);
-        self.toasts.prune();
+        self.toasts.prune()
     }
 
     // ------------------------------------------------------------ input

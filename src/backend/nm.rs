@@ -333,7 +333,7 @@ struct State {
     bus: Bus,
     ev: UnboundedSender<Ev>,
     settings: BTreeMap<String, Settings>,
-    objects: Objects,
+    last: Option<model::Snapshot>,
     wifi_backend: Option<String>,
     pending: Pending,
 }
@@ -370,15 +370,16 @@ async fn run(mut cmds: UnboundedReceiver<Cmd>, ev: UnboundedSender<Ev>) -> zbus:
         .build();
     let mut signals = MessageStream::for_match_rule(rule, &conn, Some(256)).await?;
 
-    let mut st = State { bus, ev, settings: BTreeMap::new(), objects: Objects::new(), wifi_backend: model::detect_wifi_backend(), pending };
+    let mut st = State { bus, ev, settings: BTreeMap::new(), last: None, wifi_backend: model::detect_wifi_backend(), pending };
     st.reload_all_settings().await;
     st.refresh().await;
 
     let debounce = Duration::from_millis(120);
     let mut dirty = false;
+    let mut deadline = tokio::time::Instant::now();
     let mut settings_dirty: Vec<(String, bool)> = Vec::new(); // (path, removed)
     loop {
-        let timer = tokio::time::sleep(debounce);
+        let timer = tokio::time::sleep_until(deadline);
         tokio::select! {
             cmd = cmds.recv() => match cmd {
                 Some(c) => st.command(c).await,
@@ -394,7 +395,10 @@ async fn run(mut cmds: UnboundedReceiver<Cmd>, ev: UnboundedSender<Ev>) -> zbus:
                     "Updated" => settings_dirty.push((path, false)),
                     _ => {}
                 }
-                dirty = true;
+                if !dirty {
+                    dirty = true;
+                    deadline = tokio::time::Instant::now() + debounce;
+                }
             }
             _ = timer, if dirty => {
                 dirty = false;
@@ -431,12 +435,17 @@ impl State {
     }
 
     async fn refresh(&mut self) {
-        match self.bus.managed_objects().await {
-            Ok(o) => self.objects = o,
+        let objects = match self.bus.managed_objects().await {
+            Ok(o) => o,
             Err(e) => return self.emit(Ev::Error(format!("Refresh failed: {}", friendly(&e)))),
-        }
-        let mut snap = model::parse(&self.objects, &self.settings);
+        };
+        let mut snap = model::parse(&objects, &self.settings);
         snap.general.wifi_backend = self.wifi_backend.clone();
+        // Access points churn signals during scans; skip snapshots that change nothing.
+        if self.last.as_ref() == Some(&snap) {
+            return;
+        }
+        self.last = Some(snap.clone());
         self.emit(Ev::Snapshot(Box::new(snap)));
     }
 

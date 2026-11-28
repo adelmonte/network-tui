@@ -16,8 +16,23 @@ use super::theme::Theme;
 
 pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+static ANIMATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn spinner(tick: u64) -> &'static str {
+    ANIMATED.store(true, std::sync::atomic::Ordering::Relaxed);
     SPINNER[(tick as usize) % SPINNER.len()]
+}
+
+/// Whether the last frame drew something that moves on its own (a spinner),
+/// so the next tick needs a redraw. Resets the flag.
+pub fn take_animated() -> bool {
+    ANIMATED.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether a terminal event can change what's on screen. Plain mouse motion
+/// (reported constantly with mouse capture on) can't.
+pub fn event_redraws(e: &crossterm::event::Event) -> bool {
+    !matches!(e, crossterm::event::Event::Mouse(m) if m.kind == crossterm::event::MouseEventKind::Moved)
 }
 
 /// A rect of at most `w` x `h`, centred in `area`.
@@ -51,8 +66,8 @@ pub fn popup(f: &mut Frame, area: Rect, theme: &Theme, title: &str) -> Rect {
     inner
 }
 
-/// Tab bar: ` 1 Devices │ 2 Adapters `. Each tab is clickable. When the
-/// titles don't fit, other tabs collapse to their number.
+/// Tab bar: ` Devices   Adapters `. Each tab is clickable. When the
+/// titles don't fit, other tabs collapse to their first letters.
 pub fn tabs<T: Clone>(
     f: &mut Frame,
     area: Rect,
@@ -62,13 +77,19 @@ pub fn tabs<T: Clone>(
     mouse: &mut MouseMap<T>,
     target: impl Fn(usize) -> T,
 ) {
-    let full: usize = titles.iter().enumerate().map(|(i, t)| format!(" {} {} ", i + 1, t).width()).sum::<usize>() + titles.len().saturating_sub(1);
-    let compact = full > area.width as usize;
-    let mut x = area.x;
-    let mut spans = Vec::new();
+    // Shorten the other tabs until everything fits: full, 3 letters, 1 letter.
+    let short = |t: &str, n: usize| t.chars().take(n).collect::<String>();
+    let need = |n: usize| -> usize {
+        1 + titles.iter().enumerate().map(|(i, t)| if i == selected { t.width() } else { short(t, n).width() } + 3).sum::<usize>()
+    };
+    let keep = [usize::MAX, 3, 1].into_iter().find(|&n| need(n) <= area.width as usize).unwrap_or(1);
+    let mut x = area.x + 1;
     for (i, t) in titles.iter().enumerate() {
-        let label = if compact && i != selected { format!(" {} ", i + 1) } else { format!(" {} {} ", i + 1, t) };
+        let label = if i == selected { format!(" {t} ") } else { format!(" {} ", short(t, keep)) };
         let w = label.width() as u16;
+        if x + w > area.right() {
+            break;
+        }
         let style = if i == selected {
             if theme.mono {
                 Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
@@ -78,17 +99,11 @@ pub fn tabs<T: Clone>(
         } else {
             theme.dim()
         };
-        if x + w <= area.right() {
-            mouse.add(Rect::new(x, area.y, w, 1), target(i));
-        }
-        spans.push(Span::styled(label, style));
-        x += w;
-        if i + 1 < titles.len() {
-            spans.push(Span::styled("│", theme.border(false)));
-            x += 1;
-        }
+        let r = Rect::new(x, area.y, w, 1);
+        mouse.add(r, target(i));
+        f.render_widget(Span::styled(label, style), r);
+        x += w + 1;
     }
-    f.render_widget(Line::from(spans), area);
 }
 
 /// Footer of key hints: `Enter connect · s scan · ? help`. Each hint is
@@ -233,6 +248,27 @@ impl Toasts {
             f.render_widget(p, r);
         }
     }
+}
+
+/// Shortens a line to `w` cells, ending it with `…` when anything was cut.
+pub fn fit_line(l: Line<'_>, w: usize) -> Line<'_> {
+    if l.width() <= w {
+        return l;
+    }
+    let style = l.style;
+    let mut used = 0;
+    let mut spans = Vec::new();
+    for sp in l.spans {
+        let sw = sp.content.width();
+        if used + sw < w {
+            used += sw;
+            spans.push(sp);
+        } else {
+            spans.push(Span::styled(truncate(&sp.content, w - used), sp.style));
+            break;
+        }
+    }
+    Line::from(spans).style(style)
 }
 
 pub fn truncate(s: &str, max: usize) -> String {

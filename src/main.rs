@@ -56,21 +56,37 @@ async fn main() -> color_eyre::Result<()> {
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let result: color_eyre::Result<()> = async {
+        let mut dirty = true;
+        let mut animated = false;
+        let mut idle_ticks = 0u32;
         loop {
-            term.draw(|f| view::render(&mut app, f))?;
+            if dirty {
+                term.draw(|f| view::render(&mut app, f))?;
+                animated = ui::widgets::take_animated();
+                dirty = false;
+                idle_ticks = 0;
+            }
             tokio::select! {
                 e = events.next() => match e {
-                    Some(Ok(e)) => app.on_event(e),
+                    Some(Ok(e)) => {
+                        dirty |= ui::widgets::event_redraws(&e);
+                        app.on_event(e);
+                    }
                     Some(Err(e)) => return Err(e.into()),
                     None => break,
                 },
                 Some(ev) = backend.rx.recv() => {
+                    dirty = true;
                     app.on_backend(ev);
                     while let Ok(ev) = backend.rx.try_recv() {
                         app.on_backend(ev);
                     }
                 }
-                _ = tick.tick() => app.on_tick(),
+                _ = tick.tick() => {
+                    idle_ticks += 1;
+                    // Redraw for spinners, expired toasts, and once a second for relative times.
+                    dirty |= app.on_tick() | animated | (idle_ticks >= 10);
+                }
             }
             if app.quit {
                 break;
