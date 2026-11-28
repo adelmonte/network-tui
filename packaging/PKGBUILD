@@ -9,7 +9,7 @@ license=('GPL-3.0-or-later')
 depends=('networkmanager' 'gcc-libs' 'glibc')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('26e2741a801d6fcdba7d01eeac8119b55f279322950f6ff82ac229a661a406a1')
 options=('!lto')
 
 prepare() {
