@@ -43,7 +43,7 @@ define_actions! {
         Import => "import", "Import VPN config file", ["I"],
         // devices
         DeviceToggle => "device_toggle", "Connect / disconnect device", ["enter", "space"],
-        Managed => "managed", "Let NetworkManager manage it", ["M"],
+        Managed => "managed", "Manage this device", ["M"],
         DeviceAutoconnect => "device_autoconnect", "Device auto-connect on/off", ["a"],
         // general
         GeneralActivate => "general_activate", "Change selected setting", ["enter", "space"],

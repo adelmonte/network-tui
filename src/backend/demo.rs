@@ -10,8 +10,8 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::time::sleep;
 
 use super::form;
-use super::model::{self, NM, NM_PATH};
-use super::val::{Dict, DictExt, Objects, Settings, Val};
+use super::model::{self, AccessPoint, ActiveConn, Connectivity, DevKind, DevState, Device, General, IpInfo, Profile, Security, Snapshot};
+use super::val::{ssid_to_string, Dict, DictExt, Objects, Settings, Val};
 use super::{Cmd, Ev, Handle, SecretRequest};
 
 const IF_DEVICE: &str = "org.freedesktop.NetworkManager.Device";
@@ -302,7 +302,7 @@ impl Demo {
     }
 
     fn publish(&self) {
-        let mut snap = model::parse(&self.objs, &self.settings);
+        let mut snap = parse(&self.objs, &self.settings);
         snap.general.wifi_backend = Some("iwd".into());
         let _ = self.ev.send(Ev::Snapshot(Box::new(snap)));
     }
@@ -598,10 +598,224 @@ impl Demo {
             Cmd::SetDeviceAutoconnect { device, on } => {
                 self.dev_mut(&device, IF_DEVICE).insert("Autoconnect".into(), Val::Bool(on));
             }
-            Cmd::Import { kind, file } => {
-                let _ = self.ev.send(Ev::Info(format!("Demo: would run `nmcli connection import type {kind} file {file}`")));
+            Cmd::Import { kind, file, .. } => {
+                let _ = self.ev.send(Ev::Info(format!("Demo: would import {file} as {kind}")));
             }
         }
         self.publish();
+    }
+}
+
+// ---------------------------------------------------------------- fake NetworkManager objects
+//
+// The demo builds NetworkManager-shaped D-Bus objects and parses them into a
+// snapshot, which keeps its sample data easy to write.
+
+const NM: &str = "org.freedesktop.NetworkManager";
+const NM_PATH: &str = "/org/freedesktop/NetworkManager";
+const IF_CONN: &str = "org.freedesktop.NetworkManager.Settings.Connection";
+
+fn ip_info(objs: &Objects, path: Option<String>, v6: bool) -> IpInfo {
+    let Some(p) = path else { return IpInfo::default() };
+    let Some(cfg) = objs.get(&p).and_then(|o| o.get(if v6 { IF_IP6 } else { IF_IP4 })) else {
+        return IpInfo::default();
+    };
+    let addresses = cfg
+        .get("AddressData")
+        .map(|v| v.dict_list().iter().map(|d| format!("{}/{}", d.s("address"), d.u("prefix"))).collect())
+        .unwrap_or_default();
+    let dns = if v6 {
+        match cfg.get("Nameservers") {
+            Some(Val::BytesList(list)) => list.iter().filter_map(|b| model::ip6_from_bytes(b)).collect(),
+            _ => Vec::new(),
+        }
+    } else {
+        cfg.get("NameserverData").map(|v| v.dict_list().iter().map(|d| d.s("address")).collect()).unwrap_or_default()
+    };
+    IpInfo { addresses, gateway: cfg.s("Gateway"), dns, domains: cfg.get("Domains").map(Val::str_list).unwrap_or_default() }
+}
+
+
+/// Build a snapshot from ObjectManager data plus cached connection settings.
+pub fn parse(objs: &Objects, settings: &BTreeMap<String, Settings>) -> Snapshot {
+    let empty = Dict::new();
+    let nm = objs.get(NM_PATH).and_then(|o| o.get(NM)).unwrap_or(&empty);
+    let nms = objs.get(&format!("{NM_PATH}/Settings")).and_then(|o| o.get(IF_SETTINGS)).unwrap_or(&empty);
+    let general = General {
+        version: nm.s("Version"),
+        hostname: nms.s("Hostname"),
+        networking_enabled: nm.b("NetworkingEnabled"),
+        wifi_enabled: nm.b("WirelessEnabled"),
+        wifi_hw_enabled: nm.opt_b("WirelessHardwareEnabled").unwrap_or(true),
+        wwan_enabled: nm.b("WwanEnabled"),
+        wwan_hw_enabled: nm.b("WwanHardwareEnabled"),
+        connectivity: Connectivity::from_u32(nm.u("Connectivity")),
+        connectivity_check_enabled: nm.b("ConnectivityCheckEnabled"),
+        state: nm.u("State"),
+        wifi_backend: None,
+    };
+
+    let mut devices = Vec::new();
+    let mut aps = BTreeMap::new();
+    let mut active = Vec::new();
+    for (path, ifaces) in objs {
+        if let Some(d) = ifaces.get(IF_DEVICE) {
+            let reason = match d.get("StateReason") {
+                Some(Val::U32List(v)) => v.get(1).copied().unwrap_or(0),
+                _ => 0,
+            };
+            let mut dev = Device {
+                path: path.clone(),
+                iface: d.s("Interface"),
+                kind: DevKind::from_u32(d.u("DeviceType")),
+                state: DevState::from_u32(d.u("State")),
+                state_reason: reason,
+                managed: d.b("Managed"),
+                autoconnect: d.b("Autoconnect"),
+                driver: d.s("Driver"),
+                hw_addr: d.s("HwAddress"),
+                perm_hw_addr: String::new(),
+                mtu: d.u("Mtu"),
+                active: d.path("ActiveConnection"),
+                ip4: ip_info(objs, d.path("Ip4Config"), false),
+                ip6: ip_info(objs, d.path("Ip6Config"), true),
+                speed: 0,
+                carrier: None,
+                access_points: Vec::new(),
+                active_ap: None,
+                bitrate_kbps: 0,
+                last_scan_ms: 0,
+                available_connections: d.paths("AvailableConnections"),
+            };
+            if let Some(w) = ifaces.get(IF_WIRELESS) {
+                dev.access_points = w.paths("AccessPoints");
+                dev.active_ap = w.path("ActiveAccessPoint");
+                dev.bitrate_kbps = w.u("Bitrate");
+                dev.last_scan_ms = w.i("LastScan");
+                dev.perm_hw_addr = w.s("PermHwAddress");
+            }
+            if let Some(w) = ifaces.get(IF_WIRED) {
+                dev.speed = w.u("Speed");
+                dev.carrier = w.opt_b("Carrier");
+                dev.perm_hw_addr = w.s("PermHwAddress");
+            }
+            devices.push(dev);
+        }
+        if let Some(a) = ifaces.get(IF_AP) {
+            let ssid_bytes = a.get("Ssid").and_then(Val::bytes).map(<[u8]>::to_vec).unwrap_or_default();
+            aps.insert(
+                path.clone(),
+                AccessPoint {
+                    path: path.clone(),
+                    ssid: ssid_to_string(&ssid_bytes),
+                    ssid_bytes,
+                    bssid: a.s("HwAddress"),
+                    strength: a.u("Strength").min(100) as u8,
+                    freq: a.u("Frequency"),
+                    security: Security::from_flags(a.u("Flags"), a.u("WpaFlags"), a.u("RsnFlags")),
+                    max_bitrate_kbps: a.u("MaxBitrate"),
+                    mode: a.u("Mode"),
+                },
+            );
+        }
+        if let Some(a) = ifaces.get(IF_ACTIVE) {
+            active.push(ActiveConn {
+                path: path.clone(),
+                conn_path: a.s("Connection"),
+                id: a.s("Id"),
+                uuid: a.s("Uuid"),
+                kind: a.s("Type"),
+                devices: a.paths("Devices"),
+                state: a.u("State"),
+                default4: a.b("Default"),
+                vpn: a.b("Vpn"),
+            });
+        }
+    }
+    // Loopback first is noise; sort by kind then name.
+    devices.sort_by(|a, b| (a.kind, &a.iface).cmp(&(b.kind, &b.iface)));
+
+    let mut profiles: Vec<Profile> = settings
+        .iter()
+        .map(|(p, s)| Profile::from_settings(p, s, objs.get(p).and_then(|o| o.get(IF_CONN))))
+        .collect();
+    for prof in &mut profiles {
+        if let Some(a) = active.iter().find(|a| a.conn_path == prof.path) {
+            prof.active_state = Some(a.state);
+            prof.active_devices = a
+                .devices
+                .iter()
+                .filter_map(|dp| devices.iter().find(|d| &d.path == dp).map(|d| d.iface.clone()))
+                .collect();
+        }
+    }
+    profiles.sort_by_key(|a| (!a.is_active(), model::kind_rank(&a.kind), a.id.to_lowercase()));
+    Snapshot { general, devices, aps, active, profiles }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ap(ssid: &str, strength: u32, freq: u32, rsn: u32) -> BTreeMap<String, Dict> {
+        let mut d = Dict::new();
+        d.insert("Ssid".into(), Val::Bytes(ssid.as_bytes().to_vec()));
+        d.insert("Strength".into(), Val::U8(strength as u8));
+        d.insert("Frequency".into(), Val::U32(freq));
+        d.insert("Flags".into(), Val::U32(1));
+        d.insert("WpaFlags".into(), Val::U32(0));
+        d.insert("RsnFlags".into(), Val::U32(rsn));
+        d.insert("HwAddress".into(), Val::Str("00:11:22:33:44:55".into()));
+        BTreeMap::from([(IF_AP.to_string(), d)])
+    }
+
+    #[test]
+    fn parse_and_group_networks() {
+        let mut objs = Objects::new();
+        let mut nm = Dict::new();
+        nm.insert("Version".into(), Val::Str("1.52.0".into()));
+        nm.insert("WirelessEnabled".into(), Val::Bool(true));
+        nm.insert("Connectivity".into(), Val::U32(4));
+        objs.insert(NM_PATH.into(), BTreeMap::from([(NM.to_string(), nm)]));
+        let mut dev = Dict::new();
+        dev.insert("Interface".into(), Val::Str("wlan0".into()));
+        dev.insert("DeviceType".into(), Val::U32(2));
+        dev.insert("State".into(), Val::U32(100));
+        dev.insert("StateReason".into(), Val::U32List(vec![100, 0]));
+        let mut w = Dict::new();
+        w.insert("AccessPoints".into(), Val::PathList(vec!["/ap/1".into(), "/ap/2".into(), "/ap/3".into(), "/ap/4".into()]));
+        w.insert("ActiveAccessPoint".into(), Val::Path("/ap/2".into()));
+        objs.insert("/dev/wlan0".into(), BTreeMap::from([(IF_DEVICE.to_string(), dev), (IF_WIRELESS.to_string(), w)]));
+        objs.insert("/ap/1".into(), ap("Home", 40, 2437, 0x188));
+        objs.insert("/ap/2".into(), ap("Home", 80, 5180, 0x188));
+        objs.insert("/ap/3".into(), ap("Cafe", 90, 2412, 0));
+        objs.insert("/ap/4".into(), ap("", 70, 2412, 0x188));
+
+        let mut s = Settings::new();
+        let mut c = Dict::new();
+        c.insert("id".into(), Val::Str("Home".into()));
+        c.insert("type".into(), Val::Str("802-11-wireless".into()));
+        c.insert("uuid".into(), Val::Str("u1".into()));
+        s.insert("connection".into(), c);
+        let mut wl = Dict::new();
+        wl.insert("ssid".into(), Val::Bytes(b"Home".to_vec()));
+        s.insert("802-11-wireless".into(), wl);
+        let settings = BTreeMap::from([("/conn/1".to_string(), s)]);
+
+        let snap = parse(&objs, &settings);
+        assert_eq!(snap.general.connectivity, Connectivity::Full);
+        assert_eq!(snap.devices.len(), 1);
+        let nets = model::networks(&snap, "/dev/wlan0");
+        assert_eq!(nets.len(), 2, "hidden SSID skipped, Home merged");
+        assert_eq!(nets[0].ssid, "Home");
+        assert!(nets[0].connected);
+        assert_eq!(nets[0].strength, 80);
+        assert_eq!(nets[0].ap_count, 2);
+        assert_eq!(nets[0].bands.len(), 2);
+        assert_eq!(nets[0].profile.as_deref(), Some("/conn/1"));
+        assert_eq!(nets[1].ssid, "Cafe");
+        assert_eq!(nets[1].security, Security::Wep);
     }
 }

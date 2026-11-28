@@ -27,13 +27,13 @@ signal = "both"
 [wifi]
 # Hide networks weaker than this (0-100). 0 shows everything.
 min_signal = 0
-# Ask for a scan when the app opens (NetworkManager also scans on its own)
+# Ask for a scan when the app opens (iwd also scans on its own)
 scan_on_start = true
 # Defaults for a new hotspot. Empty name = "<hostname>-hotspot".
 hotspot_name = ""
 # "" (automatic), "bg" (2.4 GHz, best range/compatibility), or "a" (5 GHz, faster)
 hotspot_band = "bg"
-# New Wi-Fi profiles: MAC address to show networks. "" (NetworkManager default),
+# New Wi-Fi profiles: MAC address to show networks. "" (the card's own address),
 # "stable" (random but fixed per network), "random" (new every time), "permanent"
 new_profile_mac = "stable"
 

@@ -23,9 +23,9 @@ pub fn render(app: &mut App, f: &mut Frame) {
     let [header, body, footer] = Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)]).areas(area);
     render_header(app, f, header);
     if let Some(m) = app.unavailable.clone() {
-        empty_state(f, body, &app.theme, "NetworkManager is unavailable", &[&m]);
+        empty_state(f, body, &app.theme, "The network daemon isn't reachable", &[&m]);
     } else if !app.loaded {
-        empty_state(f, body, &app.theme, &format!("{} Talking to NetworkManager…", spinner(app.tick)), &[]);
+        empty_state(f, body, &app.theme, &format!("{} Talking to the network daemon…", spinner(app.tick)), &[]);
     } else {
         match app.tab {
             Tab::Wifi => render_wifi(app, f, body),
@@ -146,7 +146,7 @@ fn render_wifi(app: &mut App, f: &mut Frame, area: Rect) {
     let t = app.theme.clone();
     let wifi_devs: Vec<Device> = app.wifi_devices().into_iter().cloned().collect();
     if wifi_devs.is_empty() {
-        return empty_state(f, area, &t, "No Wi-Fi device", &["NetworkManager doesn't see a wireless card.", "Check `rfkill list` and that the driver is loaded. Other connections are in tab 2."]);
+        return empty_state(f, area, &t, "No Wi-Fi device", &["No wireless card found.", "Check `rfkill list` and that the driver is loaded. Other connections are in tab 2."]);
     }
     let (list_area, details) = split(app, area, 46);
     let mut inner = list_frame(app, f, list_area, "Wi-Fi");
@@ -593,7 +593,7 @@ fn render_general(app: &mut App, f: &mut Frame, area: Rect) {
                     Connectivity::None => t.error(),
                     _ => t.warn(),
                 }),
-                if g.connectivity_check_enabled { "press Enter to check now".into() } else { "connectivity checking is disabled in NM".into() },
+                if g.connectivity_check_enabled { "press Enter to check now".into() } else { "connectivity checking is disabled".into() },
             ),
         };
         let line = Line::from(vec![
@@ -608,8 +608,8 @@ fn render_general(app: &mut App, f: &mut Frame, area: Rect) {
     }
     let y = inner.y + GenRow::ALL.len() as u16 * 2 + 1;
     let info = [
-        ("NetworkManager", if g.version.is_empty() { "?".into() } else { g.version.clone() }),
-        ("Wi-Fi backend", g.wifi_backend.clone().unwrap_or_else(|| "wpa_supplicant (default)".into())),
+        ("Daemon", if g.version.is_empty() { "?".into() } else { g.version.clone() }),
+        ("Wi-Fi backend", g.wifi_backend.clone().unwrap_or_else(|| "iwd".into())),
         ("Config", app.cfg_path.display().to_string()),
     ];
     for (i, (k, v)) in info.iter().enumerate() {
@@ -784,7 +784,7 @@ fn help_rows(app: &App) -> Vec<HelpRow> {
     rows.push(HelpRow::Section("Files".into()));
     rows.push(HelpRow::Text(format!("config  {}", app.cfg_path.display())));
     rows.push(HelpRow::Text(format!("log     {}", crate::core::logging::log_dir(crate::config::APP).join("network-tui.log").display())));
-    rows.push(HelpRow::Text("Connection profiles are stored by NetworkManager (/etc/NetworkManager/system-connections).".into()));
+    rows.push(HelpRow::Text("Profiles are kept by the daemon in /var/lib/network-tui/profiles (Wi-Fi is mirrored to /var/lib/iwd).".into()));
     rows
 }
 

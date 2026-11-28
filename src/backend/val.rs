@@ -1,16 +1,18 @@
-//! A small, owned, D-Bus-independent value tree mirroring NetworkManager's
-//! `a{sv}` data. The NM backend converts zvariant values to/from this, so the
-//! model and the profile editor can be pure code with unit tests.
+//! A small, owned value tree in the shape of NetworkManager's `a{sv}` data.
+//! Profiles use it (in NM's settings layout), so the editor and the daemon
+//! share one format, and it serializes as-is over the daemon's socket.
 
 use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 
 pub type Dict = BTreeMap<String, Val>;
 /// setting name -> key -> value, i.e. NM's `a{sa{sv}}` connection settings.
 pub type Settings = BTreeMap<String, Dict>;
-/// object path -> interface -> property -> value (ObjectManager snapshot).
+/// object path -> interface -> property -> value (the demo's fake D-Bus objects).
 pub type Objects = BTreeMap<String, BTreeMap<String, Dict>>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Val {
     Bool(bool),
     U8(u8),

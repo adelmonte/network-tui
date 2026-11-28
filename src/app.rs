@@ -196,7 +196,7 @@ impl App {
             toasts.push(Level::Warn, w);
         }
         if demo {
-            toasts.push(Level::Info, "Demo mode — fake networks, nothing touches NetworkManager");
+            toasts.push(Level::Info, "Demo mode — fake networks, nothing touches your network");
         }
         let show_details = cfg.general.details;
         Self {
@@ -370,7 +370,10 @@ impl App {
                 self.unavailable = Some(m);
                 self.loaded = true;
             }
-            Ev::Snapshot(s) => self.apply_snapshot(*s),
+            Ev::Snapshot(s) => {
+                self.unavailable = None;
+                self.apply_snapshot(*s);
+            }
             Ev::Busy { key, label, on } => {
                 if on {
                     self.busy.insert(key, label);
@@ -859,11 +862,14 @@ impl App {
             }
             MiniPurpose::Import => {
                 let file = expand_home(v[0].trim());
-                if !std::path::Path::new(&file).is_file() {
-                    m.error = Some(format!("no such file: {file}"));
-                    return false;
-                }
-                self.send(Cmd::Import { kind: v[1].clone(), file });
+                let contents = match std::fs::read_to_string(&file) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        m.error = Some(format!("can't read {file}: {e}"));
+                        return false;
+                    }
+                };
+                self.send(Cmd::Import { kind: v[1].clone(), file, contents });
             }
             MiniPurpose::Hostname => {
                 let h = v[0].trim().to_string();
@@ -1130,7 +1136,7 @@ impl App {
                     intro: "Import an OpenVPN (.ovpn) or WireGuard (.conf) file.".into(),
                     fields: vec![
                         MiniField::text("File", "~/"),
-                        MiniField::choice("Type", vec![("openvpn", "OpenVPN (needs networkmanager-openvpn)"), ("wireguard", "WireGuard")], 0),
+                        MiniField::choice("Type", vec![("openvpn", "OpenVPN (needs openvpn)"), ("wireguard", "WireGuard")], 0),
                     ],
                     focus: 0,
                     ok_label: "Import",
@@ -1143,12 +1149,12 @@ impl App {
             DeviceToggle => {
                 let Some(d) = self.selected_device().cloned() else { return };
                 if !d.managed {
-                    return self.toasts.push(Level::Info, format!("{} isn't managed by NetworkManager (press M to manage it)", d.iface));
+                    return self.toasts.push(Level::Info, format!("{} is unmanaged (press M to manage it)", d.iface));
                 }
                 if d.active.is_some() {
                     self.send(Cmd::DisconnectDevice { device: d.path.clone(), label: d.iface.clone() });
                 } else {
-                    // Let NM pick the best available profile for this device.
+                    // Use the best available profile for this device.
                     match d.available_connections.first() {
                         Some(c) => self.send(Cmd::Activate { profile: c.clone(), device: Some(d.path.clone()), label: d.iface.clone() }),
                         None => self.toasts.push(Level::Info, format!("No saved connection fits {} — create one in Connections", d.iface)),

@@ -1,0 +1,8 @@
+description = "network-tui daemon (Wi-Fi via iwd, wired, VPN)"
+run = "/usr/bin/network-tui daemon --ready-fd 4"
+ready = "fd:4"
+needs = ["dbus"]
+wants = ["iwd", "nftables"]
+after = ["syslog"]
+provides = ["network"]
+log = "file"

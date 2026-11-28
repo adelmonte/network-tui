@@ -1,0 +1,13 @@
+[Unit]
+Description=network-tui daemon (Wi-Fi via iwd, wired, VPN)
+Wants=iwd.service network.target
+After=dbus.service iwd.service
+Before=network.target
+Conflicts=NetworkManager.service systemd-networkd.service
+
+[Service]
+ExecStart=/usr/bin/network-tui daemon
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

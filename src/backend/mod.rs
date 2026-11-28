@@ -1,21 +1,23 @@
 //! Backend interface: the UI sends [`Cmd`]s and receives [`Ev`]s.
-//! [`nm`] talks to NetworkManager over D-Bus; [`demo`] fakes it.
-//!
-//! NetworkManager is the only real backend. On the target machine NM uses iwd
-//! for Wi-Fi underneath (`wifi.backend=iwd`), which is transparent here.
+//! [`client`] talks to the network-tui daemon over its Unix socket (JSON
+//! lines of these same types); [`demo`] fakes it.
 
+pub mod client;
 pub mod demo;
 pub mod form;
 pub mod model;
-pub mod nm;
 pub mod val;
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use model::Snapshot;
 use val::{Dict, Settings};
 
-#[derive(Clone, Debug)]
+/// Where the daemon listens.
+pub const SOCKET: &str = "/run/network-tui.sock";
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Cmd {
     Scan(String),
     /// Join a network: reuse `profile` if given, else create one from `settings`.
@@ -35,22 +37,23 @@ pub enum Cmd {
     CheckConnectivity,
     SetManaged { device: String, on: bool },
     SetDeviceAutoconnect { device: String, on: bool },
-    Import { kind: String, file: String },
+    /// Import a VPN config; the client reads the file and sends its contents.
+    Import { kind: String, file: String, contents: String },
     SecretReply { id: u64, secrets: Option<Dict> },
 }
 
 /// What the secret agent is asking the user for.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SecretRequest {
     pub conn_id: String,
     pub setting: String,
     /// The key to fill in within `setting`, e.g. "psk", "password".
     pub key: String,
-    /// NM says the previous secret was wrong.
+    /// The previous secret was rejected.
     pub retry: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Ev {
     Unavailable(String),
     Snapshot(Box<Snapshot>),

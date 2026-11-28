@@ -1,10 +1,12 @@
-//! network-tui — a modern terminal UI for NetworkManager.
+//! network-tui — a terminal UI for managing network connections, and the
+//! daemon (`network-tui daemon`) that does the work.
 
 mod action;
 mod app;
 mod backend;
 mod config;
 mod core;
+mod daemon;
 mod editor;
 mod ui;
 mod view;
@@ -12,7 +14,7 @@ mod view;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::event::EventStream;
 use futures::StreamExt;
 
@@ -20,9 +22,11 @@ use crate::app::App;
 use crate::config::{Config, APP, DEFAULT_TOML};
 
 #[derive(Parser, Debug)]
-#[command(name = "network-tui", version, about = "Manage NetworkManager connections from the terminal")]
+#[command(name = "network-tui", version, about = "Manage network connections from the terminal")]
 struct Cli {
-    /// Use a fake backend with sample networks (no NetworkManager needed)
+    #[command(subcommand)]
+    cmd: Option<Command>,
+    /// Use a fake backend with sample networks (no daemon needed)
     #[arg(long)]
     demo: bool,
     /// Config file (default: ~/.config/network-tui/config.toml)
@@ -32,14 +36,32 @@ struct Cli {
     #[arg(long)]
     print_default_config: bool,
     /// Verbose logging to the log file
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     verbose: bool,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Run the network daemon (as root, from your service manager)
+    Daemon {
+        /// Write a newline to this file descriptor once the socket is up
+        #[arg(long, value_name = "FD")]
+        ready_fd: Option<i32>,
+    },
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    if let Some(Command::Daemon { ready_fd }) = cli.cmd {
+        tracing_subscriber::fmt()
+            .with_max_level(if cli.verbose { tracing::Level::DEBUG } else { tracing::Level::INFO })
+            .with_target(false)
+            .with_writer(std::io::stderr)
+            .init();
+        return daemon::run(ready_fd).await;
+    }
     if cli.print_default_config {
         print!("{DEFAULT_TOML}");
         return Ok(());
@@ -49,7 +71,7 @@ async fn main() -> color_eyre::Result<()> {
     for w in &loaded.warnings {
         tracing::warn!("{w}");
     }
-    let mut backend = if cli.demo { backend::demo::spawn() } else { backend::nm::spawn() };
+    let mut backend = if cli.demo { backend::demo::spawn() } else { backend::client::spawn() };
     let mut app = App::new(loaded.value, loaded.path, backend.tx.clone(), cli.demo, loaded.warnings);
 
     let mut term = core::term::init(app.cfg.general.mouse)?;
