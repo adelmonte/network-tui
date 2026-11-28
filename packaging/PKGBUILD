@@ -1,6 +1,6 @@
 # Maintainer: adelmonte
 pkgname=network-tui
-pkgver=0.2.1
+pkgver=0.3.0
 pkgrel=1
 pkgdesc='Network manager with a terminal UI: Wi-Fi via iwd, Ethernet, WireGuard, OpenVPN'
 arch=('x86_64')
@@ -12,7 +12,7 @@ optdepends=('nftables: sharing a connection over a hotspot'
 backup=('etc/iwd/main.conf')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('26e2741a801d6fcdba7d01eeac8119b55f279322950f6ff82ac229a661a406a1')
+sha256sums=('bc0749ad00d59c6c3d121fa7b2011df34882162872812b5a2ac8893f57e56508')
 options=('!lto')
 
 prepare() {
