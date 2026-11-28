@@ -4,6 +4,7 @@
 mod action;
 mod app;
 mod backend;
+mod cli;
 mod config;
 mod core;
 mod daemon;
@@ -48,12 +49,28 @@ enum Command {
         #[arg(long, value_name = "FD")]
         ready_fd: Option<i32>,
     },
+    /// List active connections (name, type, device)
+    Status {
+        /// Print only the active Wi-Fi connection's name
+        #[arg(long)]
+        wifi: bool,
+    },
+    /// Bring up a saved connection by name
+    Up { name: String },
+    /// Take down an active connection by name
+    Down { name: String },
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    match &cli.cmd {
+        Some(Command::Status { wifi }) => return cli::status(*wifi).await,
+        Some(Command::Up { name }) => return cli::up_down(name, true).await,
+        Some(Command::Down { name }) => return cli::up_down(name, false).await,
+        _ => {}
+    }
     if let Some(Command::Daemon { ready_fd }) = cli.cmd {
         tracing_subscriber::fmt()
             .with_max_level(if cli.verbose { tracing::Level::DEBUG } else { tracing::Level::INFO })

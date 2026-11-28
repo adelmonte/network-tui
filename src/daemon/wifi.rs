@@ -1,7 +1,7 @@
 //! Wi-Fi through iwd: keeping profiles and iwd's files in step, connecting,
 //! answering iwd's password requests, scanning, and hotspots.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
@@ -77,6 +77,7 @@ impl Daemon {
             }
         }
         self.iw = st;
+        self.wifi_hooks();
         if known_before != known_now && !known_before.is_empty() {
             self.sync_iwd_files();
         }
@@ -85,6 +86,39 @@ impl Daemon {
         }
         self.refresh_diag().await;
         self.dirty = true;
+    }
+
+    /// Tell dispatcher scripts about Wi-Fi connections iwd made or lost
+    /// (iwd only reports "connected" once addressing is done).
+    fn wifi_hooks(&mut self) {
+        let mut now = BTreeMap::new();
+        for d in &self.iw.devices {
+            if self.iw.stations.get(&d.path).is_none_or(|s| s.state != "connected") {
+                continue;
+            }
+            let Some(n) = self.iw.current_network(&d.name) else { continue };
+            let uuid = self
+                .wifi_pending
+                .get(&d.name)
+                .map(|p| p.uuid.clone())
+                .filter(|u| self.store.profiles.get(u).and_then(ssid_of).as_deref() == Some(n.name.as_bytes()))
+                .or_else(|| self.store.by_ssid(n.name.as_bytes()).first().map(|s| store::uuid(s)))
+                .unwrap_or_default();
+            now.insert(d.name.clone(), uuid);
+        }
+        let before = std::mem::take(&mut self.wifi_up);
+        for (iface, (uuid, id)) in &before {
+            if now.get(iface) != Some(uuid) {
+                self.hook_id(iface, "down", uuid, id.clone());
+            }
+        }
+        for (iface, uuid) in now {
+            if before.get(&iface).map(|b| &b.0) != Some(&uuid) {
+                self.hook(&iface, "up", &uuid);
+            }
+            let id = self.store.profiles.get(&uuid).map(store::id).unwrap_or_default();
+            self.wifi_up.insert(iface, (uuid, id));
+        }
     }
 
     async fn refresh_bss(&mut self, ifname: &str) {

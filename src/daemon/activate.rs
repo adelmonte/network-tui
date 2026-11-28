@@ -483,11 +483,14 @@ impl Daemon {
                     }
                 self.apply_static_routes(&s, index).await;
                 let first = self.actives.get(&uuid).is_some_and(|a| a.state == 1);
+                let changed = old.as_ref() != Some(&lease);
                 if let Some(a) = self.actives.get_mut(&uuid) {
                     a.lease = Some(lease);
                 }
                 if first {
                     self.finish_activation(&uuid);
+                } else if changed {
+                    self.hook(&iface, "dhcp4-change", &uuid);
                 }
             }
             dhcp::DhcpEv::Lost(msg) => {
@@ -532,6 +535,11 @@ impl Daemon {
         let Some(a) = self.actives.get_mut(uuid) else { return };
         a.state = 2;
         let (client, label, iface) = (a.client, a.label.clone(), a.iface.clone());
+        let action = if a.kind == "vpn" { "vpn-up" } else { "up" };
+        if !iface.is_empty() {
+            self.hook(&iface, action, uuid);
+        }
+        let Some(a) = self.actives.get(uuid) else { return };
         let msg = if matches!(a.extra, Extra::Hotspot { .. }) { format!("Hotspot {label} is up") } else { format!("Connected {label}") };
         self.busy(client, &prof_path(uuid), &label, false);
         self.ok(client, msg);
@@ -565,6 +573,8 @@ impl Daemon {
         self.dirty = true;
         if a.state == 1 {
             self.busy(a.client, &prof_path(uuid), &a.label, false);
+        } else if !a.iface.is_empty() {
+            self.hook(&a.iface, if a.kind == "vpn" { "vpn-down" } else { "down" }, uuid);
         }
         let nl = self.nl.clone();
         let index = self.links.index(&a.iface);

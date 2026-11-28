@@ -54,11 +54,17 @@ DNS is left to whatever runs your resolver (`/etc/resolv.conf` isn't touched).
 - Hotspots use iwd's access point mode, with NAT through nftables. OpenVPN connections need `openvpn`.
 - WEP networks aren't supported (iwd dropped WEP).
 
+### Dispatcher scripts
+
+Executables in `/etc/network-tui/dispatcher.d/` run when connections change, like NetworkManager's dispatcher, so existing scripts keep working: arguments `<interface> <action>` (`up`, `down`, `dhcp4-change`, `vpn-up`, `vpn-down`) and `CONNECTION_ID`, `CONNECTION_UUID`, `DEVICE_IFACE` and `NM_DISPATCHER_ACTION` in the environment. Scripts must be owned by root and not writable by others; they run one at a time in name order, with a 30 second limit each. `up` is also sent for connections that are already up when the daemon starts.
+
 ## Usage
 
 ```
 network-tui [--demo] [-c|--config PATH] [--print-default-config]
 network-tui daemon [--ready-fd FD] [-v]
+network-tui status [--wifi]     # active connections; --wifi prints just the Wi-Fi name
+network-tui up NAME | down NAME
 ```
 
 | Option | |

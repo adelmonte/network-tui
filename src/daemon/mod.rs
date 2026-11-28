@@ -5,6 +5,7 @@
 
 mod activate;
 pub mod dhcp;
+pub mod dispatch;
 pub mod iwd;
 pub mod iwdfile;
 pub mod link;
@@ -116,6 +117,9 @@ pub struct Daemon {
     last_primary: Option<u32>,
     last_json: String,
     dirty: bool,
+    dispatch: UnboundedSender<dispatch::Event>,
+    /// Wi-Fi connection last reported up per interface: (uuid, id).
+    wifi_up: BTreeMap<String, (String, String)>,
     refresh_iwd: bool,
     refresh_links: bool,
 }
@@ -165,6 +169,8 @@ pub async fn run(ready_fd: Option<i32>) -> color_eyre::Result<()> {
         last_primary: None,
         last_json: String::new(),
         dirty: true,
+        dispatch: dispatch::spawn(),
+        wifi_up: BTreeMap::new(),
         refresh_iwd: false,
         refresh_links: false,
     };
@@ -296,6 +302,15 @@ impl Daemon {
             l.push('\n');
             let _ = c.tx.send(l);
         }
+    }
+
+    fn hook(&self, iface: &str, action: &'static str, uuid: &str) {
+        let id = self.store.profiles.get(uuid).map(store::id).unwrap_or_default();
+        self.hook_id(iface, action, uuid, id);
+    }
+
+    fn hook_id(&self, iface: &str, action: &'static str, uuid: &str, id: String) {
+        let _ = self.dispatch.send(dispatch::Event { iface: iface.to_string(), action, id, uuid: uuid.to_string() });
     }
 
     fn ok(&self, client: u64, msg: impl Into<String>) {
